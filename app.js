@@ -3,7 +3,7 @@
 
   // ─── Configuration ─────────────────────────────────────────────────────────
   const CONFIG = {
-    WEBHOOK_URL: 'https://crownring.app.n8n.cloud/webhook-test/instant-quote',
+    WEBHOOK_URL: 'https://crownring.app.n8n.cloud/webhook/instant-quote',
     MAX_FILES: 3,
     MAX_FILE_SIZE_MB: 10,
     ACCEPTED_TYPES: ['image/jpeg', 'image/png', 'image/webp'],
