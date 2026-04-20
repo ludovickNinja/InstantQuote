@@ -33,19 +33,11 @@
       "parameters": {
         "method": "POST",
         "url": "https://api.openai.com/v1/chat/completions",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{$credentials.openAiApiKey}}"
-            }
-          ]
-        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
         "sendBody": true,
         "contentType": "json",
+        "specifyBody": "json",
         "body": "={{\nJSON.stringify({\n  model: 'gpt-4o',\n  max_tokens: 600,\n  response_format: { type: 'json_object' },\n  messages: [\n    {\n      role: 'user',\n      content: [\n        {\n          type: 'text',\n          text: `You are an expert jewelry designer and visualizer. Analyze the reference jewelry image and the customer's modification request below. Produce a detailed visual description of the finished custom piece suitable for use as a DALL-E 3 prompt to render photorealistic studio product images.\\n\\nModification request: ${$json.description}\\nMaterial: ${$json.material}\\nPiece type: ${$json.pieceType}\\n\\nOutput ONLY a JSON object with one key: { \"visualDescription\": \"<your detailed description here>\" }`\n        },\n        {\n          type: 'image_url',\n          image_url: { url: $json.primaryImageDataUrl, detail: 'high' }\n        }\n      ]\n    }\n  ]\n})\n}}",
         "options": {}
       }
@@ -69,19 +61,11 @@
       "parameters": {
         "method": "POST",
         "url": "https://api.openai.com/v1/images/generations",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{$credentials.openAiApiKey}}"
-            }
-          ]
-        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
         "sendBody": true,
         "contentType": "json",
+        "specifyBody": "json",
         "body": "={{\nJSON.stringify({\n  model: 'dall-e-3',\n  n: 1,\n  size: '1024x1024',\n  quality: 'standard',\n  response_format: 'b64_json',\n  prompt: `Professional product photography of a custom ${$('Validate Input').first().json.pieceType} on a pure white background, dramatic studio lighting, centered composition, straight-on front view. ${$('Extract Vision Result').first().json.visualDescription}. Material: ${$('Validate Input').first().json.material}. Photorealistic, ultra-high detail, luxury jewelry photography style, no background distractions.`\n})\n}}",
         "options": {}
       }
@@ -95,19 +79,11 @@
       "parameters": {
         "method": "POST",
         "url": "https://api.openai.com/v1/images/generations",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{$credentials.openAiApiKey}}"
-            }
-          ]
-        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
         "sendBody": true,
         "contentType": "json",
+        "specifyBody": "json",
         "body": "={{\nJSON.stringify({\n  model: 'dall-e-3',\n  n: 1,\n  size: '1024x1024',\n  quality: 'standard',\n  response_format: 'b64_json',\n  prompt: `Professional product photography of a custom ${$('Validate Input').first().json.pieceType} on a pure white background, dramatic studio lighting, exact side profile view (90-degree side angle). ${$('Extract Vision Result').first().json.visualDescription}. Material: ${$('Validate Input').first().json.material}. Photorealistic, ultra-high detail, luxury jewelry photography style, no background distractions.`\n})\n}}",
         "options": {}
       }
@@ -121,19 +97,11 @@
       "parameters": {
         "method": "POST",
         "url": "https://api.openai.com/v1/images/generations",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{$credentials.openAiApiKey}}"
-            }
-          ]
-        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
         "sendBody": true,
         "contentType": "json",
+        "specifyBody": "json",
         "body": "={{\nJSON.stringify({\n  model: 'dall-e-3',\n  n: 1,\n  size: '1024x1024',\n  quality: 'standard',\n  response_format: 'b64_json',\n  prompt: `Professional product photography of a custom ${$('Validate Input').first().json.pieceType} on a pure white background, dramatic studio lighting, 45-degree perspective angle (three-quarter view). ${$('Extract Vision Result').first().json.visualDescription}. Material: ${$('Validate Input').first().json.material}. Photorealistic, ultra-high detail, luxury jewelry photography style, no background distractions.`\n})\n}}",
         "options": {}
       }
