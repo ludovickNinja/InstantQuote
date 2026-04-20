@@ -1,0 +1,246 @@
+{
+  "name": "InstantQuote Webhook",
+  "nodes": [
+    {
+      "id": "node-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "instant-quote",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-validate",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\n\nconst VALID_MATERIALS = ['gold', 'silver', 'platinum'];\nconst VALID_TYPES = ['ring', 'necklace', 'bracelet', 'earring', 'pendant'];\n\nif (!body.images || !Array.isArray(body.images) || body.images.length === 0) {\n  throw new Error('No images provided');\n}\nif (body.images.length > 3) {\n  throw new Error('Too many images (max 3)');\n}\nif (!body.description || body.description.trim().length === 0) {\n  throw new Error('Description is required');\n}\nif (!VALID_MATERIALS.includes(body.material)) {\n  throw new Error('Invalid material: ' + body.material);\n}\nif (!VALID_TYPES.includes(body.pieceType)) {\n  throw new Error('Invalid piece type: ' + body.pieceType);\n}\n\nconst mimeTypes = body.imageMimeTypes || body.images.map(() => 'image/jpeg');\nconst imageDataUrls = body.images.map(\n  (b64, i) => `data:${mimeTypes[i] || 'image/jpeg'};base64,${b64}`\n);\n\nreturn [{\n  json: {\n    description: body.description.trim(),\n    material: body.material,\n    pieceType: body.pieceType,\n    primaryImageDataUrl: imageDataUrls[0],\n    allImageDataUrls: imageDataUrls,\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-vision",
+      "name": "Analyze with GPT-4o Vision",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$credentials.openAiApiKey}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{\nJSON.stringify({\n  model: 'gpt-4o',\n  max_tokens: 600,\n  response_format: { type: 'json_object' },\n  messages: [\n    {\n      role: 'user',\n      content: [\n        {\n          type: 'text',\n          text: `You are an expert jewelry designer and visualizer. Analyze the reference jewelry image and the customer's modification request below. Produce a detailed visual description of the finished custom piece suitable for use as a DALL-E 3 prompt to render photorealistic studio product images.\\n\\nModification request: ${$json.description}\\nMaterial: ${$json.material}\\nPiece type: ${$json.pieceType}\\n\\nOutput ONLY a JSON object with one key: { \"visualDescription\": \"<your detailed description here>\" }`\n        },\n        {\n          type: 'image_url',\n          image_url: { url: $json.primaryImageDataUrl, detail: 'high' }\n        }\n      ]\n    }\n  ]\n})\n}}",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-extract-vision",
+      "name": "Extract Vision Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.choices[0].message.content;\nconst parsed = JSON.parse(raw);\nif (!parsed.visualDescription) {\n  throw new Error('GPT-4o did not return a visualDescription');\n}\nreturn [{ json: { visualDescription: parsed.visualDescription } }];"
+      }
+    },
+    {
+      "id": "node-dalle-front",
+      "name": "Generate Front View",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 140],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/generations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$credentials.openAiApiKey}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{\nJSON.stringify({\n  model: 'dall-e-3',\n  n: 1,\n  size: '1024x1024',\n  quality: 'standard',\n  response_format: 'b64_json',\n  prompt: `Professional product photography of a custom ${$('Validate Input').first().json.pieceType} on a pure white background, dramatic studio lighting, centered composition, straight-on front view. ${$('Extract Vision Result').first().json.visualDescription}. Material: ${$('Validate Input').first().json.material}. Photorealistic, ultra-high detail, luxury jewelry photography style, no background distractions.`\n})\n}}",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-dalle-side",
+      "name": "Generate Side View",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/generations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$credentials.openAiApiKey}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{\nJSON.stringify({\n  model: 'dall-e-3',\n  n: 1,\n  size: '1024x1024',\n  quality: 'standard',\n  response_format: 'b64_json',\n  prompt: `Professional product photography of a custom ${$('Validate Input').first().json.pieceType} on a pure white background, dramatic studio lighting, exact side profile view (90-degree side angle). ${$('Extract Vision Result').first().json.visualDescription}. Material: ${$('Validate Input').first().json.material}. Photorealistic, ultra-high detail, luxury jewelry photography style, no background distractions.`\n})\n}}",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-dalle-perspective",
+      "name": "Generate Perspective View",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 460],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/generations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$credentials.openAiApiKey}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{\nJSON.stringify({\n  model: 'dall-e-3',\n  n: 1,\n  size: '1024x1024',\n  quality: 'standard',\n  response_format: 'b64_json',\n  prompt: `Professional product photography of a custom ${$('Validate Input').first().json.pieceType} on a pure white background, dramatic studio lighting, 45-degree perspective angle (three-quarter view). ${$('Extract Vision Result').first().json.visualDescription}. Material: ${$('Validate Input').first().json.material}. Photorealistic, ultra-high detail, luxury jewelry photography style, no background distractions.`\n})\n}}",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-merge",
+      "name": "Merge Images",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "parameters": {
+        "mode": "mergeByPosition",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-price",
+      "name": "Calculate Price and Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "parameters": {
+        "jsCode": "const PIECE_BASE_PRICE = {\n  ring: 800,\n  necklace: 1200,\n  bracelet: 1000,\n  earring: 600,\n  pendant: 700,\n};\n\nconst MATERIAL_MULTIPLIER = {\n  silver: 1.0,\n  gold: 1.5,\n  platinum: 2.0,\n};\n\nconst validatedInput = $('Validate Input').first().json;\nconst material = validatedInput.material;\nconst pieceType = validatedInput.pieceType;\n\nconst base = PIECE_BASE_PRICE[pieceType];\nconst multiplier = MATERIAL_MULTIPLIER[material];\nconst midpoint = base * multiplier;\nconst VARIANCE = 0.20;\n\nconst roundToFifty = (n) => Math.round(n / 50) * 50;\nconst priceMin = roundToFifty(midpoint * (1 - VARIANCE));\nconst priceMax = roundToFifty(midpoint * (1 + VARIANCE));\n\n// After mergeByPosition the items arrive in order: front, side, perspective\nconst allItems = $input.all();\nconst frontB64       = allItems[0].json.data[0].b64_json;\nconst sideB64        = allItems[1].json.data[0].b64_json;\nconst perspectiveB64 = allItems[2].json.data[0].b64_json;\n\nconst materialLabel = { silver: 'Sterling Silver', gold: 'Gold', platinum: 'Platinum' };\nconst typeLabel = { ring: 'Ring', necklace: 'Necklace', bracelet: 'Bracelet', earring: 'Earring', pendant: 'Pendant' };\n\nreturn [{\n  json: {\n    images: {\n      front: frontB64,\n      side: sideB64,\n      perspective: perspectiveB64,\n    },\n    price: {\n      min: priceMin,\n      max: priceMax,\n      currency: 'USD',\n    },\n    description: `Custom ${materialLabel[material]} ${typeLabel[pieceType]} — estimated fabrication cost based on material and design complexity.`,\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1780, 300],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [{ "node": "Validate Input", "type": "main", "index": 0 }]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [{ "node": "Analyze with GPT-4o Vision", "type": "main", "index": 0 }]
+      ]
+    },
+    "Analyze with GPT-4o Vision": {
+      "main": [
+        [{ "node": "Extract Vision Result", "type": "main", "index": 0 }]
+      ]
+    },
+    "Extract Vision Result": {
+      "main": [
+        [
+          { "node": "Generate Front View", "type": "main", "index": 0 },
+          { "node": "Generate Side View", "type": "main", "index": 0 },
+          { "node": "Generate Perspective View", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Generate Front View": {
+      "main": [
+        [{ "node": "Merge Images", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate Side View": {
+      "main": [
+        [{ "node": "Merge Images", "type": "main", "index": 1 }]
+      ]
+    },
+    "Generate Perspective View": {
+      "main": [
+        [{ "node": "Merge Images", "type": "main", "index": 2 }]
+      ]
+    },
+    "Merge Images": {
+      "main": [
+        [{ "node": "Calculate Price and Build Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Calculate Price and Build Response": {
+      "main": [
+        [{ "node": "Respond to Webhook", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "instanceId": "instantquote-workflow-v1"
+  }
+}
