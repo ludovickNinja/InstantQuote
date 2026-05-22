@@ -1,0 +1,282 @@
+{
+  "name": "InstantQuote Webhook V6",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "instant-quote",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "fa933713-7e00-4c42-94eb-729ea86e31b6",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "instant-quote"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst body = (raw.body && raw.body.description !== undefined) ? raw.body : raw;\nconst description = body.description || '';\nconst material    = body.material    || 'sterling-silver';\nconst pieceType   = body.pieceType   || 'ring';\nconst rawImages   = body.images        || [];\nconst mimeTypes   = body.imageMimeTypes || rawImages.map(() => 'image/jpeg');\nconst refB64      = rawImages[0] || '';\nconst refMimeType = mimeTypes[0]  || 'image/jpeg';\n// All images as data URLs for the agent to reference\nconst allDataUrls = rawImages.slice(0,3).map((b,i) =>\n  `data:${mimeTypes[i]||'image/jpeg'};base64,${b}`\n);\nreturn [{ json: {\n  description, material, pieceType,\n  refB64, refMimeType,\n  allDataUrls,\n  imageCount: rawImages.length\n} }];"
+      },
+      "id": "258a7b9c-e5ad-4abf-bba2-91a322940894",
+      "name": "Parse Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "refB64",
+        "binaryPropertyName": "refImage",
+        "options": {
+          "fileName": "reference.jpg",
+          "mimeType": "={{ $json.refMimeType }}"
+        }
+      },
+      "id": "da6d735a-32e8-49a1-9a99-01fbaca2ba40",
+      "name": "Convert to Binary",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'You are a jewelry customization specialist. A customer wants to modify a jewelry piece.\n\nPiece type: ' + $json.pieceType + '\nMaterial: ' + $json.material + '\nModification request: ' + $json.description + '\nNumber of reference photos provided: ' + $json.imageCount + '\n\nAnalyze the reference image carefully, then call the render_jewelry tool to generate the 3 renders and price estimate. Pass the exact modification description and all relevant details to the tool.' }}",
+        "options": {
+          "systemMessage": "You are a jewelry customization AI. Your ONLY job is to analyze the customer's reference photo and modification request, then immediately call the render_jewelry tool with all the details. Do not ask questions. Do not explain. Just call the tool once with the full context.",
+          "maxIterations": 3,
+          "passthroughBinaryImages": true
+        }
+      },
+      "id": "91914841-bc1a-4242-98c9-e9256e5645c2",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o",
+          "cachedResultName": "GPT-4O"
+        },
+        "builtInTools": {},
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "248acd92-b81e-49c5-9780-233c43df5ba9",
+      "name": "GPT-4o",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        560,
+        224
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "gmmDqDDkbHGdXhxv",
+          "name": "OpenAi CR"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "Generates 3 photorealistic renders of a custom jewelry piece (front, side, 45-degree angle) using gpt-image-1 and calculates a price estimate. Call this with the full modification description, material, piece type, and reference image data URL.",
+        "jsCode": "// This tool is called by the AI Agent with full jewelry context\n// The agent has already analyzed the reference image and provides visualDescription\nconst input = JSON.parse(query);\nconst { description, material, pieceType, visualDescription } = input;\n\n// Get reference image data from the workflow context\nconst parseData = $('Parse Input').first().json;\nconst refB64      = parseData.refB64      || '';\nconst refMimeType = parseData.refMimeType || 'image/jpeg';\n\n// Get API key from OpenAI credential\nconst apiKey = $credentials?.openAiApi?.apiKey || '';\n\nif (!apiKey) {\n  return JSON.stringify({ error: 'No OpenAI API key found in credentials' });\n}\n\nconst angles = [\n  { view: 'front',   angle: 'front view, straight on, centered' },\n  { view: 'side',    angle: 'side profile view' },\n  { view: 'angle45', angle: '45-degree angle view' }\n];\n\nconst renders = {};\n\nfor (const { view, angle } of angles) {\n  const prompt = `${angle}: ${visualDescription}. Professional jewelry product photography, pure white seamless background, studio lighting, ultra-high detail, photorealistic. Do not show hands or fingers.`;\n\n  let b64 = '';\n\n  if (refB64) {\n    // Use image edit endpoint with reference\n    const boundary = 'boundary' + Date.now();\n    const imgBytes = Buffer.from(refB64, 'base64');\n    const ext = refMimeType.split('/')[1] || 'jpeg';\n\n    const parts = [\n      `--${boundary}\\r\\nContent-Disposition: form-data; name=\"model\"\\r\\n\\r\\ngpt-image-1`,\n      `--${boundary}\\r\\nContent-Disposition: form-data; name=\"prompt\"\\r\\n\\r\\n${prompt}`,\n      `--${boundary}\\r\\nContent-Disposition: form-data; name=\"n\"\\r\\n\\r\\n1`,\n      `--${boundary}\\r\\nContent-Disposition: form-data; name=\"size\"\\r\\n\\r\\n1024x1024`,\n      `--${boundary}\\r\\nContent-Disposition: form-data; name=\"quality\"\\r\\n\\r\\nstandard`,\n    ];\n\n    let bodyStr = parts.join('\\r\\n') + '\\r\\n';\n    const preamble = Buffer.from(bodyStr, 'utf8');\n    const imgHeader = Buffer.from(\n      `--${boundary}\\r\\nContent-Disposition: form-data; name=\"image[]\"; filename=\"ref.${ext}\"\\r\\nContent-Type: ${refMimeType}\\r\\n\\r\\n`,\n      'utf8'\n    );\n    const epilogue = Buffer.from(`\\r\\n--${boundary}--\\r\\n`, 'utf8');\n    const bodyBuf = Buffer.concat([preamble, imgHeader, imgBytes, epilogue]);\n\n    const resp = await $helpers.httpRequest({\n      method: 'POST',\n      url: 'https://api.openai.com/v1/images/edits',\n      headers: {\n        'Authorization': `Bearer ${apiKey}`,\n        'Content-Type': `multipart/form-data; boundary=${boundary}`\n      },\n      body: bodyBuf,\n      encoding: null,\n      returnFullResponse: false\n    });\n\n    const data = typeof resp === 'string' ? JSON.parse(resp) : resp;\n    if (data.error) throw new Error(`Edit error (${view}): ${data.error.message}`);\n    b64 = data.data?.[0]?.b64_json || '';\n\n  } else {\n    // Fallback: pure generation\n    const resp = await $helpers.httpRequest({\n      method: 'POST',\n      url: 'https://api.openai.com/v1/images/generations',\n      headers: {\n        'Authorization': `Bearer ${apiKey}`,\n        'Content-Type': 'application/json'\n      },\n      body: JSON.stringify({\n        model: 'gpt-image-1',\n        prompt,\n        n: 1,\n        size: '1024x1024',\n        quality: 'standard'\n      })\n    });\n    const data = typeof resp === 'string' ? JSON.parse(resp) : resp;\n    if (data.error) throw new Error(`Gen error (${view}): ${data.error.message}`);\n    b64 = data.data?.[0]?.b64_json || '';\n  }\n\n  renders[view] = b64;\n}\n\n// Price calculation\nconst basePrices = { ring: 800, necklace: 1200, bracelet: 1000, earring: 600, pendant: 700 };\nconst mults = { 'sterling-silver': 1.0, 'gold-14k-18k': 1.5, platinum: 2.0, gold: 1.5, silver: 1.0 };\nconst pt = (pieceType || 'ring').toLowerCase();\nconst mt = (material  || 'sterling-silver').toLowerCase();\nconst mid  = (basePrices[pt] ?? 800) * (mults[mt] ?? 1.0);\nconst low  = Math.round(mid * 0.8 / 50) * 50;\nconst high = Math.round(mid * 1.2 / 50) * 50;\n\nreturn JSON.stringify({\n  images: { front: renders.front, side: renders.side, perspective: renders.angle45 },\n  price: { min: low, max: high, currency: 'USD' },\n  description: `Custom ${pt} in ${mt} — estimated fabrication cost based on material and design complexity.`\n});",
+        "specifyInputSchema": true,
+        "schemaType": "manual",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "The modification request from the customer"
+            },
+            "material": {
+              "type": "string",
+              "description": "The jewelry material e.g. gold, sterling-silver, platinum"
+            },
+            "pieceType": {
+              "type": "string",
+              "description": "The type of piece e.g. ring, necklace, bracelet"
+            },
+            "visualDescription": {
+              "type": "string",
+              "description": "Your detailed visual description of the modified piece based on the reference image"
+            }
+          },
+          "required": [
+            "description",
+            "material",
+            "pieceType",
+            "visualDescription"
+          ]
+        }
+      },
+      "id": "2313824c-c994-442e-b914-5778059f1bf9",
+      "name": "render_jewelry",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        768,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract the tool result from the agent output\nconst agentOutput = $input.first().json.output || '';\n\n// The agent returns the tool result as a JSON string somewhere in its output\n// Try to find and parse the JSON block\nlet result;\ntry {\n  // First try: agent output is directly the JSON\n  result = JSON.parse(agentOutput);\n} catch(e) {\n  // Second try: extract JSON from within the agent's text response\n  const match = agentOutput.match(/\\{[\\s\\S]*\"images\"[\\s\\S]*\\}/);\n  if (match) {\n    result = JSON.parse(match[0]);\n  } else {\n    throw new Error('Could not extract render result from agent output: ' + agentOutput.slice(0, 200));\n  }\n}\n\nreturn [{ json: result }];"
+      },
+      "id": "4386c51b-cffe-4e67-b452-c7dde7441f1a",
+      "name": "Extract Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "8b2f8f25-6a9b-418f-aec5-6f5df61a7ba2",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1104,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Input": {
+      "main": [
+        [
+          {
+            "node": "Convert to Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to Binary": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Extract Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Result": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GPT-4o": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "render_jewelry": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true
+  },
+  "versionId": "948f47ba-baed-4bda-875f-c7340b50fb88",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1885375f6ded06507c97e7b13669becf3c628de2efa7a02756ce6f368e1d018e"
+  },
+  "id": "gHRfphlypmOdK22q",
+  "tags": []
+}
